@@ -3,6 +3,9 @@ kind: ScaledObject
 metadata:
   name: nginx-scaledobject
   namespace: default
+  annotations:
+    # Explicitly exclude CPU scaling since HPA handles it
+    keda.sh/paused-replicas: "0"
 spec:
   scaleTargetRef:
     name: nginx-deployment
@@ -10,7 +13,7 @@ spec:
   minReplicaCount: 1
   maxReplicaCount: 10
   triggers:
-  - type: cpu
+  - type: memory
     metricType: Utilization
     metadata:
-      value: "50"
+      value: "80"  # Scale based on memory usage instead of CPU
