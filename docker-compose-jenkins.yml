@@ -1,0 +1,14 @@
+services:
+  jenkins:
+    image: custom-jenkins-with-docker:latest  # Or your base image
+    container_name: jenkins
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - JENKINS_OPTS="--httpPort=8080"
+volumes:
+  jenkins_home:
