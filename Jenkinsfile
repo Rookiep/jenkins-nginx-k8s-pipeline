@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent { label 'windows' }
 
     environment {
         DOCKER_IMAGE = "nginx:latest"
