@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: nginx-app
+  name: your-app-name
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/Rookiep/jenkins-nginx-k8s-pipeline.git  # Your GitHub repo
+    repoURL: https://github.com/Rookiep/jenkins-nginx-k8s-pipeline
     targetRevision: HEAD
-    path: k8s  # Path to manifests
+    path: k8s
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -18,3 +18,4 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - PruneLast=true
