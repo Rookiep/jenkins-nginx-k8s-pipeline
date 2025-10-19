@@ -1,6 +1,6 @@
 services:
   jenkins:
-    image: custom-jenkins-with-docker:latest  # Or your base image
+    image: custom-jenkins-with-docker:latest
     container_name: jenkins
     ports:
       - "8081:8080"
@@ -10,5 +10,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - JENKINS_OPTS="--httpPort=8080"
+    user: root  # Run as root to access socket
 volumes:
   jenkins_home:
