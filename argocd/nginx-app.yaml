@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'http://localhost/git/nginx-k8s.git'
+    repoURL: 'https://github.com/Rookiep/jenkins-nginx-k8s-pipeline.git'
     path: k8s
     targetRevision: HEAD
   destination:
