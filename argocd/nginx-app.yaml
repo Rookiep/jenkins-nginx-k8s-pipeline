@@ -6,9 +6,14 @@ metadata:
 spec:
   project: default
   source:
+<<<<<<< HEAD
     repoURL: 'https://github.com/Rookiep/jenkins-nginx-k8s-pipeline.git'
     path: k8s
+=======
+    repoURL: 'https://github.com/Rookiep/jenkins-nginx-k8s-pipeline.git'  # Update with real Git URL
+>>>>>>> 742366a66ff1236afc3926551206ab0b1c3a063e
     targetRevision: HEAD
+    path: k8s
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: default
@@ -16,3 +21,5 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
