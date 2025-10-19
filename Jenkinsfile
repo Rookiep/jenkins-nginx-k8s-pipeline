@@ -9,59 +9,42 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh 'echo "Code checked out successfully"'
             }
         }
         
-        stage('Validate Dockerfile') {
+        stage('Setup Docker') {
             steps {
                 script {
                     sh '''
-                        echo "Validating Docker configuration..."
-                        if [ -f "Dockerfile" ]; then
-                            echo "✅ Dockerfile found"
-                            echo "=== Dockerfile Contents ==="
-                            cat Dockerfile
-                            echo "=== Directory Structure ==="
-                            ls -la
-                        else
-                            echo "❌ Dockerfile not found"
-                            echo "Current files:"
-                            ls -la
-                            exit 1
-                        fi
+                        echo "Setting up Docker client..."
+                        apt-get update
+                        apt-get install -y docker.io
+                        docker --version
                     '''
                 }
             }
         }
         
-        stage('Simulate Build') {
+        stage('Build Image') {
             steps {
                 script {
-                    sh '''
-                        echo "🚧 SIMULATING Docker build for ${IMAGE_TAG}"
-                        echo "If Docker was available, we would run:"
-                        echo "docker build -t ${IMAGE_TAG} ."
-                        echo "docker images | grep nginx-app"
-                        
-                        # Create a build simulation file
-                        echo "Build simulated for ${IMAGE_TAG}" > build-artifact.txt
-                        echo "Build time: $(date)" >> build-artifact.txt
-                        cat build-artifact.txt
-                    '''
+                    sh """
+                        echo "Building Docker image: ${IMAGE_TAG}"
+                        docker build -t ${IMAGE_TAG} .
+                        docker images | grep nginx-app
+                    """
                 }
             }
         }
         
-        stage('Test Simulation') {
+        stage('Test Image') {
             steps {
                 script {
-                    sh '''
-                        echo "🧪 Running simulated tests..."
-                        echo "If Docker was available, we would run:"
-                        echo "docker run --rm ${IMAGE_TAG} nginx -t"
-                        echo "✅ All tests passed (simulated)"
-                    '''
+                    sh """
+                        echo "Testing the image..."
+                        docker run --rm ${IMAGE_TAG} nginx -v
+                        echo "✅ Image test passed"
+                    """
                 }
             }
         }
@@ -69,19 +52,10 @@ pipeline {
     
     post {
         always {
-            script {
-                echo "🏁 Pipeline finished: ${currentBuild.result}"
-                sh '''
-                    echo "Cleaning up..."
-                    rm -f build-artifact.txt 2>/dev/null || true
-                '''
-            }
+            echo "Pipeline finished: ${currentBuild.result}"
         }
         success {
-            echo "✅ Pipeline succeeded! Ready for Docker integration."
-        }
-        failure {
-            echo "❌ Pipeline failed. Check logs above."
+            echo "✅ SUCCESS: Docker pipeline is working!"
         }
     }
 }
