@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx-deployment
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -17,6 +18,13 @@ spec:
         image: nginx:latest
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            cpu: 100m    # ← REQUIRED for KEDA CPU scaling
+            memory: "64Mi"
+          limits:
+            cpu: 500m
+            memory: "128Mi"
         livenessProbe:
           httpGet:
             path: /
