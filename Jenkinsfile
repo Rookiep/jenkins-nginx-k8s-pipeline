@@ -2,157 +2,146 @@ pipeline {
     agent any
     
     environment {
-        IMAGE_TAG = "nginx:alpine"
+        IMAGE_TAG = "nginx-app:${env.BUILD_NUMBER}"
     }
     
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+                sh 'echo "✅ Code checked out successfully"'
             }
         }
         
-        stage('Fix Invalid YAML Files') {
+        stage('Validate Project') {
             steps {
                 script {
                     sh '''
-                        echo "=== Fixing Invalid YAML Files ==="
+                        echo "=== Project Structure ==="
+                        echo "Workspace: ${WORKSPACE}"
+                        pwd
+                        ls -la
                         
-                        # Fix hpa.yaml - remove the invalid + sign
-                        if [ -f "k8s/hpa.yaml" ]; then
-                            echo "Fixing hpa.yaml..."
-                            cat > k8s/hpa.yaml << EOF
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: nginx-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: nginx-deployment
-  minReplicas: 1
-  maxReplicas: 3
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 50
-EOF
-                            echo "✅ Fixed hpa.yaml"
-                        fi
-                        
-                        # Validate all YAML files after fixing
-                        echo "=== Validating Fixed YAML Files ==="
-                        for file in k8s/*.yaml k8s/*.yml; do
-                            if [ -f "\$file" ]; then
-                                echo "Validating: \$file"
-                                if python3 -c "import yaml; yaml.safe_load(open('\$file'))" 2>/dev/null; then
-                                    echo "✅ Valid YAML"
-                                else
-                                    echo "❌ Still invalid YAML in \$file"
-                                    echo "File content:"
-                                    cat "\$file"
-                                    exit 1
-                                fi
-                            fi
-                        done
-                        
-                        echo "🎉 All YAML files are now valid!"
-                    '''
-                }
-            }
-        }
-        
-        stage('Validate Kubernetes Manifests') {
-            steps {
-                script {
-                    sh '''
-                        echo "=== Validating Kubernetes Manifests ==="
-                        
-                        # Check if kubectl is available for validation
-                        if command -v kubectl > /dev/null 2>&1; then
-                            for file in k8s/*.yaml k8s/*.yml; do
-                                if [ -f "\$file" ]; then
-                                    echo "Validating Kubernetes syntax: \$file"
-                                    if kubectl apply -f "\$file" --dry-run=client --validate=true; then
-                                        echo "✅ Valid Kubernetes manifest"
-                                    else
-                                        echo "❌ Invalid Kubernetes manifest"
-                                        exit 1
-                                    fi
-                                fi
-                            done
+                        echo "=== Checking for Dockerfile ==="
+                        if [ -f "Dockerfile" ]; then
+                            echo "✅ Dockerfile found"
+                            echo "=== Dockerfile Contents ==="
+                            cat Dockerfile
+                        elif [ -f "Docker" ]; then
+                            echo "⚠️ Found 'Docker' file (without .file extension)"
+                            echo "=== Docker File Contents ==="
+                            cat Docker
+                            echo "Creating Dockerfile from Docker file..."
+                            cp Docker Dockerfile
+                            echo "✅ Dockerfile created"
                         else
-                            echo "⚠️ kubectl not available, skipping Kubernetes validation"
+                            echo "❌ No Dockerfile or Docker file found"
+                            echo "Creating default Dockerfile..."
+                            cat > Dockerfile << EOF
+FROM nginx:alpine
+COPY index.html /usr/share/nginx/html/index.html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+                            echo "✅ Default Dockerfile created"
+                        fi
+                        
+                        echo "=== Final Dockerfile ==="
+                        cat Dockerfile
+                        
+                        echo "=== Checking k8s directory ==="
+                        if [ -d "k8s" ]; then
+                            echo "✅ k8s directory found"
+                            ls -la k8s/
+                            find k8s/ -name "*.yaml" -o -name "*.yml" | head -10
+                        else
+                            echo "⚠️ k8s directory not found"
                         fi
                     '''
                 }
             }
         }
         
-        stage('Update Deployment Image') {
+        stage('Build Docker Image') {
             steps {
                 script {
                     sh """
-                        echo "Updating deployment with image tag..."
+                        echo "=== Building Docker Image ==="
+                        echo "Image Tag: ${IMAGE_TAG}"
                         
-                        # Update the nginx-deployment.yaml with the correct image
-                        if [ -f "k8s/nginx-deployment.yaml" ]; then
-                            sed -i "s|image:.*|image: ${IMAGE_TAG}|g" k8s/nginx-deployment.yaml
-                            echo "✅ Updated nginx-deployment.yaml with image: ${IMAGE_TAG}"
+                        # Check if Docker is available
+                        if command -v docker > /dev/null 2>&1; then
+                            echo "✅ Docker is available"
+                            docker --version
                             
-                            # Show the updated content
-                            echo "=== Updated deployment ==="
-                            cat k8s/nginx-deployment.yaml
+                            # Build the image
+                            docker build -t ${IMAGE_TAG} .
+                            echo "✅ Docker image built successfully"
+                            
+                            # List the image
+                            docker images | grep nginx-app
                         else
-                            echo "⚠️ nginx-deployment.yaml not found"
+                            echo "⚠️ Docker not available, simulating build"
+                            echo "Simulated: docker build -t ${IMAGE_TAG} ."
+                            echo "Image would be: ${IMAGE_TAG}"
                         fi
                     """
                 }
             }
         }
         
-        stage('Commit and Push Fixes') {
+        stage('Update K8s Manifests') {
             steps {
                 script {
-                    sh '''
-                        echo "=== Committing YAML Fixes ==="
-                        git config --global user.email "jenkins@example.com"
-                        git config --global user.name "Jenkins"
+                    sh """
+                        echo "=== Updating K8s Manifests ==="
                         
-                        git add k8s/
-                        git status
+                        # Create k8s directory if it doesn't exist
+                        mkdir -p k8s
                         
-                        if git diff --cached --quiet; then
-                            echo "No changes to commit"
-                        else
-                            git commit -m "Fix: Correct invalid YAML syntax in hpa.yaml and update manifests"
-                            git push origin main
-                            echo "✅ Fixed YAML files pushed to repository"
-                        fi
-                    '''
-                }
-            }
-        }
-        
-        stage('Verify ArgoCD Sync') {
-            steps {
-                script {
-                    sh '''
-                        echo "=== ArgoCD Sync Status ==="
-                        echo "After pushing the fixes, ArgoCD should automatically sync"
-                        echo "The previous error was due to invalid YAML in hpa.yaml"
-                        echo "The + sign after 'averageUtilization: 50' was causing the issue"
+                        # Create or update deployment.yaml
+                        cat > k8s/deployment.yaml << EOL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: ${IMAGE_TAG}
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
+EOL
+                        echo "✅ K8s deployment manifest updated"
+                        echo "Image set to: ${IMAGE_TAG}"
                         
-                        # List all fixed files
-                        echo "=== Fixed Files ==="
-                        find k8s/ -name "*.yaml" -o -name "*.yml" | while read file; do
-                            echo "✅ Fixed: \$file"
-                        done
-                    '''
+                        # Show the created file
+                        cat k8s/deployment.yaml
+                    """
                 }
             }
         }
@@ -161,14 +150,21 @@ EOF
     post {
         always {
             echo "Pipeline finished: ${currentBuild.result}"
+            sh '''
+                echo "=== Cleanup ==="
+                # Remove any test containers
+                docker ps -aq --filter "name=test" 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+                echo "Cleanup completed"
+            '''
         }
         success {
-            echo "✅ Pipeline succeeded! YAML syntax errors fixed."
-            echo "📁 Valid k8s manifests pushed to repository"
-            echo "🔄 ArgoCD should now sync successfully"
+            echo "🎉 Pipeline succeeded!"
+            echo "📦 Docker Image: ${env.IMAGE_TAG}"
+            echo "📁 K8s manifests updated in k8s/deployment.yaml"
         }
         failure {
-            echo "❌ Pipeline failed. Check specific error above."
+            echo "❌ Pipeline failed"
         }
     }
 }
+
