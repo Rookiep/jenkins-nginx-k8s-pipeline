@@ -2,7 +2,7 @@ FROM jenkins/jenkins:lts-jdk17
 
 USER root
 
-# Install Docker CLI (Alpine/Debian compatible)
+# Install Docker CLI (as before)
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg lsb-release && \
     mkdir -p /etc/apt/keyrings && \
@@ -11,5 +11,8 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y docker-ce-cli && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Add jenkins user to docker group for socket access
+RUN usermod -aG docker jenkins
 
 USER jenkins
