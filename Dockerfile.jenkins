@@ -1,4 +1,3 @@
-# Install Docker CLI
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg lsb-release && \
     mkdir -p /etc/apt/keyrings && \
@@ -8,8 +7,8 @@ RUN apt-get update && \
     apt-get install -y docker-ce-cli && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create/align docker group to host GID 999
-RUN groupadd -g 999 docker 2>/dev/null || groupmod -g 999 docker
+# Align docker group to host socket GID
+RUN groupadd -g 0 docker 2>/dev/null || groupmod -g 0 docker
 
 # Add jenkins user to docker group
 RUN usermod -aG docker jenkins
