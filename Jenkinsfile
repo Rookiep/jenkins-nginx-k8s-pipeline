@@ -1,104 +1,117 @@
 pipeline {
     agent any
-    
+
+    environment {
+        IMAGE_NAME = "nginx-app"
+        TAG = "${BUILD_NUMBER}"
+        GIT_EMAIL = "jenkins@ci.com"
+        GIT_USER  = "Jenkins CI"
+        ARGOCD_SERVER = "argocd.example.com"   // 👈 your ArgoCD API endpoint
+        ARGOCD_APP    = "nginx-app"            // 👈 your ArgoCD app name
+    }
+
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
                 sh 'echo "✅ Code checked out successfully"'
             }
         }
-        
+
         stage('Validate Project') {
             steps {
-                script {
-                    sh '''
-                        echo "=== Project Structure ==="
-                        echo "Workspace: ${WORKSPACE}"
-                        pwd
-                        ls -la
-                        
-                        echo "=== Checking for Dockerfile ==="
-                        if [ -f Dockerfile ]; then
-                            echo "✅ Dockerfile found"
-                            echo "=== Dockerfile Contents ==="
-                            cat Dockerfile
-                        else
-                            echo "❌ Dockerfile not found"
-                            exit 1
-                        fi
-                        
-                        echo "=== Checking k8s directory ==="
-                        if [ -d k8s ]; then
-                            echo "✅ k8s directory found"
-                            ls -la k8s/
-                            find k8s/ -name "*.yaml" -o -name "*.yml" | head -10
-                        else
-                            echo "❌ k8s directory not found"
-                            exit 1
-                        fi
-                    '''
-                }
+                sh '''
+                    echo "=== Project Structure ==="
+                    ls -la
+
+                    echo "=== Checking Dockerfile ==="
+                    [ -f Dockerfile ] || { echo "❌ Dockerfile missing"; exit 1; }
+
+                    echo "=== Checking k8s directory ==="
+                    [ -d k8s ] || { echo "❌ k8s directory missing"; exit 1; }
+                '''
             }
         }
-        
+
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh """
-                        echo "=== Building Docker Image ==="
-                        echo "Image Tag: nginx-app:\${BUILD_NUMBER}"
-                        
-                        # Check if we can use Docker
-                        if [ -S /var/run/docker.sock ]; then
-                            echo "✅ Docker socket found"
-                            docker --version
-                            docker build -t nginx-app:\${BUILD_NUMBER} .
-                        else
-                            echo "❌ Docker not available - using simulation"
-                            echo "📝 Would build: docker build -t nginx-app:\${BUILD_NUMBER} ."
-                            echo "✅ Build simulation complete"
-                        fi
-                    """
-                }
+                sh """
+                    echo "=== Building Docker Image ==="
+                    echo "Image Tag: ${IMAGE_NAME}:${TAG}"
+
+                    if [ -S /var/run/docker.sock ]; then
+                        docker build -t ${IMAGE_NAME}:${TAG} .
+                        echo "✅ Docker image built"
+                    else
+                        echo "⚠️ Docker not available — Simulation mode"
+                    fi
+                """
             }
         }
-        
-        stage('Update K8s Manifests') {
+
+        stage('Update Kubernetes Manifests') {
             steps {
-                script {
-                    sh """
-                        echo "=== Updating K8s Manifests ==="
-                        # Update image tag in deployment
-                        if [ -f k8s/nginx-deployment.yaml ]; then
-                            sed -i 's|nginx-app:[0-9]*|nginx-app:\${BUILD_NUMBER}|g' k8s/nginx-deployment.yaml
-                            echo "✅ Updated deployment with tag: nginx-app:\${BUILD_NUMBER}"
-                            echo "=== Updated deployment ==="
-                            cat k8s/nginx-deployment.yaml || true
-                        else
-                            echo "⚠️  nginx-deployment.yaml not found, skipping update"
-                        fi
-                    """
-                }
+                sh """
+                    echo "=== Updating Kubernetes YAML ==="
+
+                    if [ -f k8s/nginx-deployment.yaml ]; then
+                        sed -i 's|nginx-app:[0-9]*|${IMAGE_NAME}:${TAG}|g' k8s/nginx-deployment.yaml
+                        echo "✅ Updated image to ${IMAGE_NAME}:${TAG}"
+                        cat k8s/nginx-deployment.yaml
+                    else
+                        echo "❌ k8s/nginx-deployment.yaml not found"
+                        exit 1
+                    fi
+                """
             }
         }
+
+        stage('Commit & Push Updated Manifests') {
+            steps {
+                sh """
+                    echo "=== Committing Updated YAML ==="
+
+                    git config user.email "${GIT_EMAIL}"
+                    git config user.name "${GIT_USER}"
+
+                    git add k8s/nginx-deployment.yaml
+                    git commit -m "Update image to ${IMAGE_NAME}:${TAG} by Jenkins build #${TAG}" || echo "No changes to commit"
+                    git push origin main
+                    echo "✅ YAML changes pushed to repo"
+                """
+            }
+        }
+
+        stage('Trigger ArgoCD Sync') {
+            steps {
+                sh """
+                    echo "=== Triggering ArgoCD Sync ==="
+
+                    argocd login ${ARGOCD_SERVER} --username admin --password \$ARGOCD_PASSWORD --insecure
+
+                    argocd app sync ${ARGOCD_APP} --grpc-web
+                    echo "⏳ Waiting for ArgoCD to apply changes..."
+
+                    argocd app wait ${ARGOCD_APP} --sync --health --grpc-web --timeout 180
+                """
+            }
+        }
+
+        stage('Verify Rollout (Kubernetes)') {
+            steps {
+                sh """
+                    echo "=== Checking Deployment Rollout ==="
+                    kubectl rollout status deployment/${ARGOCD_APP} --timeout=60s
+                    kubectl get pods -l app=${ARGOCD_APP}
+                """
+            }
+        }
+
     }
-    
+
     post {
-        always {
-            sh '''
-                echo "=== Cleanup ==="
-                if command -v docker >/dev/null 2>&1 && [ -S /var/run/docker.sock ]; then
-                    docker ps -aq --filter name=test | xargs -r docker rm -f || true
-                fi
-                echo "Cleanup completed"
-            '''
-        }
-        success {
-            echo "✅ Pipeline succeeded"
-        }
-        failure {
-            echo "❌ Pipeline failed"
-        }
+        success { echo "🎉 Deployment successfully synced via ArgoCD!" }
+        failure { echo "❌ Deployment failed!" }
     }
 }
